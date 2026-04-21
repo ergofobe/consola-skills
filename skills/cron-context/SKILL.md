@@ -1,151 +1,114 @@
-> **Part of [Consola Skills](https://github.com/oberon-logistics/consola-skills) — battle-tested Hermes agent skills**
+> **Part of [Consola Skills](https://github.com/ergofobe/consola-skills) — battle-tested Hermes agent skills**
 
 ---
-name: catchup
-version: 1.1.0
+name: cron-context
+version: 2.0.0
 description: >
-  Load pending cron job output into the current session. Cron jobs write their
-  output to a shared context directory; /catchup reads it in and cleans up
-  stale files.
+  Load pending cron job output into the current session. The reader half
+  of the cron-context bridge — discovers, reads, summarizes, and cleans up
+  context files written by cron-notify.
 metadata:
   hermes:
-    tags: [cron, context, catchup, session, bridge]
+    tags: [cron, context, catchup, session, bridge, reader]
     triggers:
       - /catchup
       - cron context
       - bring that into context
 ---
 
-# Catchup — Cron Context Bridge
+# Cron Context (Catchup) — Context File Reader
 
-Cron jobs deliver output to the user's chat, but the interactive agent session
-doesn't see those deliveries. This skill bridges the gap until upstream
-[#8793](https://github.com/NousResearch/hermes-agent/issues/8793) lands.
+The reader half of the cron-context bridge. Cron jobs deliver output to the
+user's chat, but the interactive agent session doesn't see those deliveries.
+This skill reads the context files written by `cron-notify` and brings them
+into the active session.
+
+Solves the upstream gap where cron job deliveries aren't visible to the
+interactive agent session ([#8793](https://github.com/NousResearch/hermes-agent/issues/8793)).
 
 ## How It Works
 
-1. **Cron jobs write context files** to `~/.agents/cron/context/<slug>.md`
-   alongside their normal delivery. The slug is derived from the job name
-   (lowercase, spaces→hyphens, alphanumeric only).
-2. **Cron notifications include a prompt**: "Use catchup to bring this into context."
-3. **User says catchup** (without leading slash) → agent reads all files in the context directory,
-   summarizes them into the conversation, then **deletes the files** so nothing
-   goes stale.
-4. **SOUL.md** includes a brief instruction to check the context directory when
-   the user references something the agent doesn't have context for.
+1. **Cron jobs write context files** via the `cron-notify` skill
+2. **User says catchup** (or the agent checks proactively)
+3. **Agent reads** all files in the context directory
+4. **Agent summarizes** the content into the conversation
+5. **Agent deletes** the files (they're now in conversation history)
 
-## Context File Format
+## Context Directory
 
-Each file is Markdown with a minimal header:
-
-```markdown
-# Cron Context: <Job Name>
-
-- **Job:** <job-name>
-- **Slug:** <slug>
-- **Notification ID:** <notification-id> (if applicable, e.g., TRI-A3K7)
-- **Delivered:** <ISO timestamp>
-- **Status:** ok | error
-
----
-
-<Full output of the cron job — the same content delivered to chat>
+```
+~/.agents/cron/context/
 ```
 
-If a notification ID is present, the file should be named `<slug>-<notification-id>.md`
-to enable `/catchup <notification-id>` lookups.
+Files follow the naming pattern `<slug>.md` or `<slug>-<notification-id>.md`.
 
 ## /catchup Procedure
 
-## /catchup Procedure
+When the user invokes `catchup` or says something like "bring that cron into context":
 
-When the user invokes `catchup` (without a leading slash — see pitfalls below) or says something like "bring that cron into context":
-
-**With a notification ID** (e.g., `catchup TRI-A3K7` or `/catchup TRI-A3K7`):
-
-1. List files in `~/.agents/cron/context/`
-3. If found, read and present that file's content in full
-4. Delete that file only
-5. If not found, say "No pending context for ID `<id>`. Available:" and list all files
-
-**Without a notification ID** (plain `catchup`):
+### Without a notification ID (plain `catchup`)
 
 1. List files in `~/.agents/cron/context/`
 2. If empty, say "No pending cron context — everything's current."
-3. For each file, read it and note the job name, timestamp, notification ID (if present), and content
-4. Summarize in the conversation: "Loaded cron context from <N> job(s):"
+3. For each file, read it and note the job name, timestamp, notification ID, and content
+4. Summarize in the conversation: "Loaded cron context from N job(s):"
    - `<notification-id>` — `<job-name>` (delivered <relative time>)
    - Brief one-line summary of each
 5. Ask if the user wants details on any specific one
 6. Delete all files in the context directory (they're now in conversation history)
 7. If any file is >24 hours old, note it as stale before deleting
 
-### Mode 2: /catchup <ID> — load specific notification
+### With a notification ID (e.g., `catchup TRI-A3K7`)
 
-When the user provides a specific notification ID (e.g. `/catchup TRI-A3K7`):
-
-1. List files in `~/.hermes/cron/context/`
+1. List files in `~/.agents/cron/context/`
 2. Search for the file containing that notification ID
-3. If found, read that file and present its full content to the user
+3. If found, read and present that file's content in full
 4. Delete only that file (leave other context files untouched)
-5. If not found in context files, search triage logs in `~/data/email-triage/logs/` for the notification ID
-6. If still not found, say "No context found for notification <ID>."
+5. If not found, say "No pending context for ID `<id>`. Available:" and list all files
 
-### Notification ID format
+## Proactive Check
 
-Notification IDs follow the pattern `TRI-XXXX` where X is an uppercase letter or digit (excluding I, O, 0, 1 for readability). These IDs are:
-- Generated by the triage script (`gmail-triage-v3.ts`)
-- Included in webhook payloads as `notification_id`
-- Appended to agent responses as `📋 Notification ID: TRI-XXXX`
-- Visible in the script's summary output
+If the user references something the agent lacks context for (a list, a report,
+a notification), check the context directory proactively — recent cron output
+may be waiting there.
 
-## Cron Prompt Template
+## Context File Format
 
-When creating or updating a cron job, append this to the agent's prompt:
+Files are written by `cron-notify` in this format:
 
-```
-After generating your response, also write the full response text to the cron
-context file so the interactive agent can pick it up later:
+```markdown
+# Cron Context: <Job Name>
 
-1. Write to: ~/.agents/cron/context/<slug>-<notification-id>.md
-   (If no notification_id in the payload, use ~/.agents/cron/context/<slug>.md)
-2. Format:
-   # Cron Context: <Job Name>
+- **Job:** <job-name>
+- **Slug:** <slug>
+- **Notification ID:** <notification-id>
+- **Delivered:** <ISO timestamp>
+- **Status:** ok | error
 
-   - **Job:** <job-name>
-   - **Slug:** <slug>
-   - **Notification ID:** <notification-id>
-   - **Delivered:** <current ISO timestamp>
-   - **Status:** ok
+---
 
-   ---
-
-   <your full response>
-
-3. After writing, append this line to your delivered response:
-   "📋 Notification ID: <notification-id> — use /catchup <notification-id> to review"
-```
-   If no notification ID, append: "_Use catchup to bring this into context._"
+<Full output of the cron job>
 ```
 
-Replace `<slug>` with the job name lowercased, spaces replaced with hyphens,
-non-alphanumeric characters removed. Example: "Morning Briefing" → `morning-briefing`.
+## Pitfalls
 
-## SOUL.md Integration
+- **Always delete after reading.** Files are now in conversation history —
+  leaving them causes stale data on next catchup.
+- **Note stale files.** If a file is >24 hours old, flag it before deleting.
+  The cron job may have failed to clean up.
+- **Don't use leading slash in triggers.** `/catchup` is a system command in
+  some platforms; the natural language "catchup" works better.
+- **Don't skip error status files.** If status is "error", surface the error
+  to the user — it means a cron job failed.
 
-SOUL.md should include:
+## Companion Skill
 
-> **Cron context:** Scheduled jobs may deliver notifications you can't see in session history. If the user references something you lack context for (a list, a report, a notification), check `~/.agents/cron/context/` — recent cron output may be waiting there. The user can also say /catchup to load it explicitly.
-
-## Directory
-
-- **Context directory:** `~/.agents/cron/context/`
-- **Created automatically** by this skill if missing
-- **Cleaned on read** — files are deleted after /catchup loads them
-- **One file per job** — each run overwrites the previous file for that slug
+This is the **reader** half. The **writer** half is `cron-notify`, which
+teaches cron jobs how to prepare and write context files with the correct
+format and notification footers.
 
 ## Upstream
 
 Once [NousResearch/hermes-agent#8793](https://github.com/NousResearch/hermes-agent/issues/8793)
-lands (cron output automatically injected into session history), this skill becomes
-obsolete and should be removed.
+lands (cron output automatically injected into session history), both halves of
+this bridge become obsolete and should be removed.
