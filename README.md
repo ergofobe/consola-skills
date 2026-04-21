@@ -12,7 +12,7 @@ Add a skill to your Hermes setup:
 
 ```bash
 # Clone the repo
-git clone https://github.com/oberon-logistics/consola-skills.git
+git clone https://github.com/ergofobe/consola-skills.git
 
 # Copy a skill to your shared skills directory
 cp -r consola-skills/skills/email-triage ~/.agents/skills/
