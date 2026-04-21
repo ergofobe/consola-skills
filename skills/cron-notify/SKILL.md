@@ -1,4 +1,4 @@
-> **Part of [Consola Skills](https://github.com/ergofobe/consola-skills) — battle-tested Hermes agent skills**
+> **Part of [Consola Skills](https://github.com/consola-ai/consola-skills) — battle-tested Hermes agent skills**
 
 ---
 name: cron-notify
